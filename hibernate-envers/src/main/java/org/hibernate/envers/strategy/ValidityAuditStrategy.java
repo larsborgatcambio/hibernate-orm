@@ -244,26 +244,31 @@ public class ValidityAuditStrategy implements AuditStrategy {
         final Map<String, Object> originalId = (Map<String, Object>) persistentCollectionChangeData.getData().get(originalIdPropName);
 		final String revisionFieldName = auditCfg.getAuditEntCfg().getRevisionFieldName();
 		final String revisionTypePropName = auditCfg.getAuditEntCfg().getRevisionTypePropName();
-
-		// Adding a parameter for each id component, except the rev number and type.
+		final String embeddableSetOrdinalPropertyName = auditCfg.getAuditEntCfg().getEmbeddableSetOrdinalPropertyName();
+		boolean isCollectionOfComponents = false; 
+		
+		final SessionFactoryImplementor sessionFactory = ( (SessionImplementor) session ).getFactory();
+		final Type propertyType = sessionFactory.getEntityPersister( entityName ).getPropertyType( propertyName );
+		if ( propertyType.isCollectionType() ) {
+			CollectionType collectionPropertyType = (CollectionType) propertyType;
+			if ( collectionPropertyType.getElementType( sessionFactory ) instanceof ComponentType ) {
+				isCollectionOfComponents=true;
+			}
+		}
+		
+		// Adding a parameter for each id component, except the rev number, type and SETORDINAL.
         for (Map.Entry<String, Object> originalIdEntry : originalId.entrySet()) {
-            if (!revisionFieldName.equals(originalIdEntry.getKey()) && !revisionTypePropName.equals(originalIdEntry.getKey())) {
+            if (!revisionFieldName.equals(originalIdEntry.getKey()) && !revisionTypePropName.equals(originalIdEntry.getKey()) && !(isCollectionOfComponents && embeddableSetOrdinalPropertyName.equals(originalIdEntry.getKey()))) {
                 qb.getRootParameters().addWhereWithParam(originalIdPropName + "." + originalIdEntry.getKey(),
                         true, "=", originalIdEntry.getValue());
             }
         }
 
-		final SessionFactoryImplementor sessionFactory = ( (SessionImplementor) session ).getFactory();
-		final Type propertyType = sessionFactory.getEntityPersister( entityName ).getPropertyType( propertyName );
-		if ( propertyType.isCollectionType() ) {
-			CollectionType collectionPropertyType = (CollectionType) propertyType;
-			// Handling collection of components.
-			if ( collectionPropertyType.getElementType( sessionFactory ) instanceof ComponentType ) {
-				// Adding restrictions to compare data outside of primary key.
-				for ( Map.Entry<String, Object> dataEntry : persistentCollectionChangeData.getData().entrySet() ) {
-					if ( !originalIdPropName.equals( dataEntry.getKey() ) ) {
-						qb.getRootParameters().addWhereWithParam( dataEntry.getKey(), true, "=", dataEntry.getValue() );
-					}
+        if(isCollectionOfComponents){
+			// Handling collection of components. Adding restrictions to compare data outside of primary key.
+			for ( Map.Entry<String, Object> dataEntry : persistentCollectionChangeData.getData().entrySet() ) {
+				if ( !originalIdPropName.equals( dataEntry.getKey() ) ) {
+					qb.getRootParameters().addWhereWithParam( dataEntry.getKey(), true, "=", dataEntry.getValue() );
 				}
 			}
 		}
